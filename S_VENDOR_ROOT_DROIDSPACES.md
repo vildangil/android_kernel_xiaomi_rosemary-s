@@ -37,7 +37,13 @@ https://github.com/ravindu644/Droidspaces-OSS/blob/main/Documentation/Kernel-Con
 
 Root setup and large SUSFS/compatibility patches are downloaded with revisions pinned to previously used sources. Every patch must pass a strict compatibility check; failures intentionally stop CI rather than generating a misleading ZIP. Old R-vendor changes **may not apply cleanly** and must not be forced onto this source.
 
-For NoMount, the kernel and userspace `nm` helper must use the same Netlink protocol. The workflow supports 29 (default) or 28 (optional helper attached to the build run).
+**S-vendor fingerprint conflict fixed in the build configuration:** Goodix fingerprint uses `GF_NETLINK_ROUTE 29` in both `drivers/input/fingerprint/goodix/gf_spi_tee.c` and `drivers/input/fingerprint_C3J/goodix/gf_spi_tee.c`. The kernel NoMount source also defaults to `NOMOUNT_NL_PROTO 29`, which can prevent the fingerprint daemon from establishing its callback. The S-vendor CI now **forces NoMount Netlink protocol 28** and explicitly rejects 29 without modifying the fingerprint driver.
+
+**The kernel and NoMount userspace `nm` binary must both use protocol 28.** Each NoMount build uploads `nomount-nm-proto28-arm64` as a separate artifact, to be deployed as the matching userspace client in the installed NoMount environment. An existing stock NoMount userspace client compiled for 29 will not communicate with the 28 kernel. Verify where your installed `nm` binary lives before replacing it and keep a backup. Do not blindly overwrite the manager's main `nomount` executable or rebuild its entire module without inspecting its paths.
+
+Log evidence from the affected device: `Fingerprint21: Fingerprint HAL ready, HAL ID: 0` followed by repeated `Unable to set callback`. This supports but does not by itself prove the collision was the only fingerprint issue; retest on the updated kernel.
+
+The separate 'white noise on lock screen' display issue is **not established as a NoMount/netlink problem**. Confirm whether it occurs on an unmodified S-vendor kernel and capture kernel `dmesg`/drm/HWC traces before making display-driver changes.
 
 BORE remains **not implemented in this S-vendor source**. The workflow's optional `enable_bore` switch refuses to build without proper `SCHED_BORE` source/Kconfig. This avoids claiming a BORE build that doesn't contain BORE.
 
