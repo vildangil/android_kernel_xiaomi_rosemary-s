@@ -31,12 +31,11 @@ on:
         type: boolean
         default: false
       nomount_netlink_proto:
-        description: NoMount protocol (kernel and userspace must match)
+        description: NoMount Netlink 28 (29 conflicts with Goodix fingerprint)
         required: true
         type: choice
-        default: '29'
+        default: '28'
         options:
-          - '29'
           - '28'
 
 concurrency:
@@ -55,7 +54,7 @@ env:
   BUILD_VARIANT: ${{ inputs.variant || 'bakasu_susfs_nomount_droidspaces' }}
   ENABLE_USERNS: ${{ inputs.enable_userns && 'true' || 'false' }}
   ENABLE_BORE: ${{ inputs.enable_bore && 'true' || 'false' }}
-  NOMOUNT_NETLINK_PROTO: ${{ inputs.nomount_netlink_proto || '29' }}
+  NOMOUNT_NETLINK_PROTO: ${{ inputs.nomount_netlink_proto || '28' }}
 
 jobs:
   build:
