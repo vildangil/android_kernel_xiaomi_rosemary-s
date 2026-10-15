@@ -28,7 +28,22 @@ test -f drivers/kernelsu/Kconfig
 grep -q 'CONFIG_KSU' drivers/Makefile
 
 if [[ "${BUILD_VARIANT:-}" == *susfs* ]]; then
-  apply_checked "susfs-2.3.0-rosemary.patch"
+  # fdinfo.c on S-vendor uses fsnotify connector-based marks, unlike the R-vendor
+  # source used to produce the original SUSFS patch. Its KSTAT handling is ported
+  # directly into fs/notify/fdinfo.c in this branch; omit ONLY that obsolete hunk.
+  curl -fL --retry 3 "${OLD}/susfs-2.3.0-rosemary.patch" -o /tmp/rosemary-root/susfs-r-original.patch
+  awk '
+    /^diff --git a\/fs\/notify\/fdinfo.c b\/fs\/notify\/fdinfo.c/ { skip=1; next }
+    /^diff --git / && skip { skip=0 }
+    !skip { print }
+  ' /tmp/rosemary-root/susfs-r-original.patch > /tmp/rosemary-root/susfs-2.3.0-rosemary.patch
+  test -s /tmp/rosemary-root/susfs-2.3.0-rosemary.patch
+  if ! git apply --check /tmp/rosemary-root/susfs-2.3.0-rosemary.patch; then
+    echo "::error::Remaining SUSFS 2.3.0 patch conflicts with this S-vendor tree."
+    exit 1
+  fi
+  git apply /tmp/rosemary-root/susfs-2.3.0-rosemary.patch
+  grep -q 'susfs_sus_kstat_spoof_inotify_fdinfo' fs/notify/fdinfo.c
   test -s fs/susfs.c
   test -s include/linux/susfs.h
   test -s include/linux/susfs_def.h
