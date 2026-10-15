@@ -13,8 +13,14 @@ grep -q '^#define GF_NETLINK_ROUTE 29' drivers/input/fingerprint/goodix/gf_spi_t
 grep -q '^#define GF_NETLINK_ROUTE 29' drivers/input/fingerprint_C3J/goodix/gf_spi_tee.c
 # The fingerprint driver owns protocol 29. Keep it unchanged; move NoMount and nm to 28.
 
-git clone --depth=1 https://github.com/Bouteillepleine/NoMount-Suite.git /tmp/rosemary-nomount
-git -C /tmp/rosemary-nomount checkout --detach f75cd19096b859f7c20181402231dad914bb02f7
+# Fetch the pinned revision directly. A depth-1 clone of an evolving main
+# cannot check out older pinned revisions after upstream advances.
+NOMOUNT_REV="f75cd19096b859f7c20181402231dad914bb02f7"
+git init -q /tmp/rosemary-nomount
+git -C /tmp/rosemary-nomount remote add origin https://github.com/Bouteillepleine/NoMount-Suite.git
+git -C /tmp/rosemary-nomount fetch -q --depth=1 origin "${NOMOUNT_REV}"
+git -C /tmp/rosemary-nomount checkout -q --detach FETCH_HEAD
+test "$(git -C /tmp/rosemary-nomount rev-parse HEAD)" = "${NOMOUNT_REV}"
 
 if [[ "${PROTO}" == "28" ]]; then
   for hdr in /tmp/rosemary-nomount/hookless/src/nomount.h /tmp/rosemary-nomount/userspace/src/nm.h; do
