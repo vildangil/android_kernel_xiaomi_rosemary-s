@@ -73,19 +73,19 @@ jobs:
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
 
-      - name: Clone S-vendor original toolchain
-        run: |
-          set -euxo pipefail
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git ../clang-proton
-          test -x ../clang-proton/bin/clang
-          echo "$PWD/../clang-proton/bin" >> "$GITHUB_PATH"
-
       - name: Apply Droidspaces non-GKI fixes (4.14)
         run: bash .github/scripts/integrate-droidspaces.sh
 
       - name: Integrate BakaSU and SUSFS 2.3.0
         if: env.BUILD_VARIANT != 'stock_droidspaces'
         run: bash .github/scripts/integrate-root.sh
+
+      - name: Clone S-vendor original toolchain
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git ../clang-proton
+          test -x ../clang-proton/bin/clang
+          echo "$PWD/../clang-proton/bin" >> "$GITHUB_PATH"
 
       - name: Integrate NoMount Suite
         if: contains(env.BUILD_VARIANT, 'nomount')
