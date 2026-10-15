@@ -5,11 +5,14 @@ set -euo pipefail
 # The patch set must pass git apply --check; no fuzzy or silent patching.
 ROOT_REV="09e3a82adfb12233171ffbf13028f0f62640706b"
 OLD="https://raw.githubusercontent.com/vildangil/android_kernel_xiaomi_rosemary/${ROOT_REV}/.github/patches"
-BAKASU_REV="d7260ca1e5c128061122924d0d48754e361e135c"
+BAKASU_REV="8450dd287ef6ee25ca2b6b858b43c9354c73060c"
 mkdir -p /tmp/rosemary-root
 
 curl -fL --retry 3 "https://raw.githubusercontent.com/Baka-SU/BakaSU/${BAKASU_REV}/kernel/setup.sh" -o /tmp/rosemary-root/bakasu-setup.sh
-bash /tmp/rosemary-root/bakasu-setup.sh
+# Oct 10 BakaSU main intentionally blocked all SUSFS builds due to upstream
+# compatibility work. Pin Oct 8 sources used before that breaking change.
+bash /tmp/rosemary-root/bakasu-setup.sh "$BAKASU_REV"
+test "$(git -C KernelSU rev-parse HEAD)" = "$BAKASU_REV"
 
 apply_checked() {
   local name="$1"
