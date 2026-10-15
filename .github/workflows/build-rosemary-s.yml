@@ -84,7 +84,8 @@ jobs:
         if: env.BUILD_VARIANT != 'stock_droidspaces'
         run: bash .github/scripts/integrate-root.sh
 
-      - name: Clone S-vendor original toolchain
+      - name: Clone Proton Clang early for NoMount proto28 helper
+        if: contains(env.BUILD_VARIANT, 'nomount') && env.NOMOUNT_NETLINK_PROTO == '28'
         run: |
           set -euxo pipefail
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git ../clang-proton
@@ -97,6 +98,14 @@ jobs:
 
       - name: Configure Droidspaces and root options
         run: bash .github/scripts/configure-s-droidspaces.sh
+
+      - name: Clone Proton Clang for actual kernel build
+        if: "!(contains(env.BUILD_VARIANT, 'nomount') && env.NOMOUNT_NETLINK_PROTO == '28')"
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git ../clang-proton
+          test -x ../clang-proton/bin/clang
+          echo "$PWD/../clang-proton/bin" >> "$GITHUB_PATH"
 
       - name: Upload matching NoMount userspace helper
         if: contains(env.BUILD_VARIANT, 'nomount') && env.NOMOUNT_NETLINK_PROTO == '28'
