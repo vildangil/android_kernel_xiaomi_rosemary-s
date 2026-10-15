@@ -1,0 +1,123 @@
+name: Rosemary S-vendor - baseline kernel
+
+on:
+  push:
+    branches:
+      - ci/s-vendor-baseline
+  pull_request:
+    branches:
+      - rosemary-13
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARCH: arm64
+  SUBARCH: arm64
+  KBUILD_BUILD_USER: vildangil
+  KBUILD_BUILD_HOST: github-actions
+  DEFCONFIG: rosemary_defconfig
+
+jobs:
+  build:
+    name: Stock S-vendor (no KSU/SUSFS/NoMount)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout S-vendor source
+        uses: actions/checkout@v4
+
+      - name: Install kernel build dependencies
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ca-certificates ccache curl flex git \
+            libelf-dev libssl-dev libncurses-dev lz4 python3 rsync unzip zip \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+            binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi
+
+      - name: Clone S-vendor original toolchain
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git ../clang-proton
+          test -x ../clang-proton/bin/clang
+          echo "$PWD/../clang-proton/bin" >> "$GITHUB_PATH"
+
+      - name: Generate original rosemary_defconfig
+        run: |
+          set -euxo pipefail
+          make O=out ARCH=arm64 "$DEFCONFIG"
+          grep -qx 'CONFIG_MACH_MT6785=y' out/.config
+          grep -qx 'CONFIG_VIDEO_MEDIATEK_VCODEC=y' out/.config
+          grep -qx 'CONFIG_MICROTRUST_TEE_SUPPORT=y' out/.config
+          grep -qx 'CONFIG_MTK_TEE_GP_SUPPORT=y' out/.config
+          grep -qx 'CONFIG_GOODIX_FINGERPRINT=y' out/.config
+          grep -qx 'CONFIG_FPC_FINGERPRINT=y' out/.config
+          if grep -Eq '^CONFIG_(KSU|NOMOUNT|KSU_SUSFS)=y' out/.config; then
+            echo "Baseline must not contain root or mount hooks"
+            exit 1
+          fi
+          grep -E 'CONFIG_(MACH_MT6785|VIDEO_MEDIATEK_VCODEC|MICROTRUST_TEE_SUPPORT|MTK_TEE_GP_SUPPORT|GOODIX_FINGERPRINT|FPC_FINGERPRINT)=' out/.config
+
+      - name: Build unmodified S-vendor kernel
+        run: |
+          set -o pipefail
+          make -j4 O=out ARCH=arm64 \
+            CC=clang \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            2>&1 | tee build.log
+
+      - name: Verify stock S-vendor image
+        run: |
+          set -euxo pipefail
+          test -s out/arch/arm64/boot/Image.gz
+          gzip -t out/arch/arm64/boot/Image.gz
+          ls -lh out/arch/arm64/boot/Image*
+          # Match upstream S-vendor b.sh: package Image.gz.
+
+      - name: Package experimental AnyKernel3 ZIP
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 --branch rosemary \
+            https://github.com/vildangil/BlackSide_Kernel_AnyKernel3.git AnyKernel3
+          test -s AnyKernel3/anykernel.sh
+          test -s AnyKernel3/tools/ak3-core.sh
+          rm -rf AnyKernel3/.git AnyKernel3/modules
+          rm -f AnyKernel3/Image AnyKernel3/Image.gz AnyKernel3/Image.gz-dtb \
+            AnyKernel3/Image-dtb AnyKernel3/dtb AnyKernel3/dtbo.img
+          cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+          test -s AnyKernel3/Image.gz
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          ZIP="rosemary-S-stock-$SHORT_SHA.zip"
+          (cd AnyKernel3 && zip -q -r9 "../$ZIP" . -x '*.git*')
+          unzip -l "$ZIP" | grep -E 'anykernel.sh|Image.gz|tools/ak3-core.sh'
+          echo "KERNEL_ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Upload experimental kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosemary-S-stock-${{ github.run_number }}
+          path: ${{ env.KERNEL_ZIP }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs and configuration
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosemary-S-build-info-${{ github.run_number }}
+          path: |
+            build.log
+            out/.config
+          if-no-files-found: warn
+          retention-days: 14
