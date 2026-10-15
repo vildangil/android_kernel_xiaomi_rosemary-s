@@ -9,12 +9,21 @@ mkdir -p /tmp/rosemary-droidspaces
 curl -fL --retry 3 "${ROOT}/01.fix_kernel_panic_in_xt_qtaguid.patch" -o /tmp/rosemary-droidspaces/01-qtaguid.patch
 curl -fL --retry 3 "${ROOT}/02.fix_restore%20cgroup%20file%20prefix%20handling%20.patch" -o /tmp/rosemary-droidspaces/02-cgroup.patch
 
-for fix in /tmp/rosemary-droidspaces/01-qtaguid.patch /tmp/rosemary-droidspaces/02-cgroup.patch; do
-  echo "Droidspaces: testing ${fix}"
-  git apply --check "${fix}" || {
-    echo "::error::Droidspaces fix cannot be applied to this S-vendor source. Adapt it; do not silently ignore."
+# Some Android vendor kernels do not ship the legacy xt_qtaguid source.
+# Its crash workaround is irrelevant when the affected driver is absent.
+if [[ -f net/netfilter/xt_qtaguid.c ]]; then
+  git apply --check /tmp/rosemary-droidspaces/01-qtaguid.patch || {
+    echo "::error::Droidspaces qtaguid patch conflicts with this kernel."
     exit 1
   }
-  git apply "${fix}"
-done
-echo "Droidspaces non-GKI kernel fixes applied."
+  git apply /tmp/rosemary-droidspaces/01-qtaguid.patch
+else
+  echo "::notice::xt_qtaguid is absent, so its Droidspaces crash workaround is not applicable."
+fi
+
+git apply --check /tmp/rosemary-droidspaces/02-cgroup.patch || {
+  echo "::error::Droidspaces cgroup compatibility fix requires adaptation for this vendor tree."
+  exit 1
+}
+git apply /tmp/rosemary-droidspaces/02-cgroup.patch
+echo "Droidspaces non-GKI fixes checked/applied."
