@@ -1,13 +1,43 @@
-name: Rosemary S-vendor - baseline kernel
+name: Rosemary S-vendor - BakaSU, SUSFS, NoMount and Droidspaces
 
 on:
   push:
     branches:
-      - ci/s-vendor-baseline
+      - feature/s-vendor-root-droidspaces
   pull_request:
     branches:
       - rosemary-13
   workflow_dispatch:
+    inputs:
+      variant:
+        description: Kernel build variant
+        required: true
+        default: bakasu_susfs_nomount_droidspaces
+        type: choice
+        options:
+          - stock_droidspaces
+          - bakasu_droidspaces
+          - bakasu_nomount_droidspaces
+          - bakasu_susfs_droidspaces
+          - bakasu_susfs_nomount_droidspaces
+      enable_userns:
+        description: Enable USER_NS (container sandboxing, increases kernel attack surface)
+        required: false
+        type: boolean
+        default: false
+      enable_bore:
+        description: Experimental BORE - fails if S-vendor source has no BORE support
+        required: false
+        type: boolean
+        default: false
+      nomount_netlink_proto:
+        description: NoMount protocol (kernel and userspace must match)
+        required: true
+        type: choice
+        default: '29'
+        options:
+          - '29'
+          - '28'
 
 permissions:
   contents: read
@@ -18,10 +48,14 @@ env:
   KBUILD_BUILD_USER: vildangil
   KBUILD_BUILD_HOST: github-actions
   DEFCONFIG: rosemary_defconfig
+  BUILD_VARIANT: ${{ inputs.variant || 'bakasu_susfs_nomount_droidspaces' }}
+  ENABLE_USERNS: ${{ inputs.enable_userns && 'true' || 'false' }}
+  ENABLE_BORE: ${{ inputs.enable_bore && 'true' || 'false' }}
+  NOMOUNT_NETLINK_PROTO: ${{ inputs.nomount_netlink_proto || '29' }}
 
 jobs:
   build:
-    name: Stock S-vendor (no KSU/SUSFS/NoMount)
+    name: S-vendor Droidspaces / root variants
     runs-on: ubuntu-22.04
     timeout-minutes: 120
 
@@ -46,23 +80,29 @@ jobs:
           test -x ../clang-proton/bin/clang
           echo "$PWD/../clang-proton/bin" >> "$GITHUB_PATH"
 
-      - name: Generate original rosemary_defconfig
-        run: |
-          set -euxo pipefail
-          make O=out ARCH=arm64 "$DEFCONFIG"
-          grep -qx 'CONFIG_MACH_MT6785=y' out/.config
-          grep -qx 'CONFIG_VIDEO_MEDIATEK_VCODEC=y' out/.config
-          grep -qx 'CONFIG_MICROTRUST_TEE_SUPPORT=y' out/.config
-          grep -qx 'CONFIG_MTK_TEE_GP_SUPPORT=y' out/.config
-          grep -qx 'CONFIG_GOODIX_FINGERPRINT=y' out/.config
-          grep -qx 'CONFIG_FPC_FINGERPRINT=y' out/.config
-          if grep -Eq '^CONFIG_(KSU|NOMOUNT|KSU_SUSFS)=y' out/.config; then
-            echo "Baseline must not contain root or mount hooks"
-            exit 1
-          fi
-          grep -E 'CONFIG_(MACH_MT6785|VIDEO_MEDIATEK_VCODEC|MICROTRUST_TEE_SUPPORT|MTK_TEE_GP_SUPPORT|GOODIX_FINGERPRINT|FPC_FINGERPRINT)=' out/.config
+      - name: Apply Droidspaces non-GKI fixes (4.14)
+        run: bash .github/scripts/integrate-droidspaces.sh
 
-      - name: Build unmodified S-vendor kernel
+      - name: Integrate BakaSU and SUSFS 2.3.0
+        if: env.BUILD_VARIANT != 'stock_droidspaces'
+        run: bash .github/scripts/integrate-root.sh
+
+      - name: Integrate NoMount Suite
+        if: contains(env.BUILD_VARIANT, 'nomount')
+        run: bash .github/scripts/integrate-nomount.sh
+
+      - name: Configure Droidspaces and root options
+        run: bash .github/scripts/configure-s-droidspaces.sh
+
+      - name: Upload matching NoMount userspace helper
+        if: contains(env.BUILD_VARIANT, 'nomount') && env.NOMOUNT_NETLINK_PROTO == '28'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosemary-S-nomount-nm-proto28-${{ github.run_number }}
+          path: nomount-nm-proto28-arm64
+          if-no-files-found: error
+
+      - name: Build S-vendor kernel with requested features
         run: |
           set -o pipefail
           make -j4 O=out ARCH=arm64 \
@@ -77,7 +117,7 @@ jobs:
             CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
             2>&1 | tee build.log
 
-      - name: Verify stock S-vendor image
+      - name: Verify S-vendor kernel image
         run: |
           set -euxo pipefail
           test -s out/arch/arm64/boot/Image.gz
@@ -85,7 +125,7 @@ jobs:
           ls -lh out/arch/arm64/boot/Image*
           # Match upstream S-vendor b.sh: package Image.gz.
 
-      - name: Package experimental AnyKernel3 ZIP
+      - name: Package kernel-only AnyKernel3 ZIP
         run: |
           set -euxo pipefail
           git clone --depth=1 --branch rosemary \
@@ -98,7 +138,7 @@ jobs:
           cp out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
           test -s AnyKernel3/Image.gz
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
-          ZIP="rosemary-S-stock-$SHORT_SHA.zip"
+          ZIP="rosemary-S-$BUILD_VARIANT-$SHORT_SHA.zip"
           (cd AnyKernel3 && zip -q -r9 "../$ZIP" . -x '*.git*')
           unzip -l "$ZIP" | grep -E 'anykernel.sh|Image.gz|tools/ak3-core.sh'
           echo "KERNEL_ZIP=$ZIP" >> "$GITHUB_ENV"
@@ -106,7 +146,7 @@ jobs:
       - name: Upload experimental kernel ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: rosemary-S-stock-${{ github.run_number }}
+          name: rosemary-S-${{ env.BUILD_VARIANT }}-${{ github.run_number }}
           path: ${{ env.KERNEL_ZIP }}
           if-no-files-found: error
           retention-days: 14
