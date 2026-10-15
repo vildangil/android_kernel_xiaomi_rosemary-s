@@ -25,11 +25,21 @@ done
 
 cp /tmp/rosemary-nomount/hookless/src/nomount.c fs/nomount.c
 cp /tmp/rosemary-nomount/hookless/src/nomount.h fs/nomount.h
-if ! patch -p1 --dry-run --fuzz=0 < /tmp/rosemary-nomount/hookless/patches/nomount_kernel_integration.patch; then
-  echo "::error::NoMount source patch conflicts with S-vendor; manual adaptation required."
+# SUSFS rewrites show_map_vma() in task_mmu.c, so the default unified
+# hunk for this same function cannot apply. Adapt that hunk separately.
+awk '
+  /^diff --git a\/fs\/proc\/task_mmu.c b\/fs\/proc\/task_mmu.c/ { skip=1; next }
+  /^diff --git / && skip { skip=0 }
+  !skip { print }
+' /tmp/rosemary-nomount/hookless/patches/nomount_kernel_integration.patch \
+  > /tmp/rosemary-nomount/integration-s-vendor.patch
+
+if ! patch -p1 --dry-run --fuzz=0 < /tmp/rosemary-nomount/integration-s-vendor.patch; then
+  echo "::error::NoMount Kconfig/Makefile patch conflicts with S-vendor."
   exit 1
 fi
-patch -p1 --fuzz=0 < /tmp/rosemary-nomount/hookless/patches/nomount_kernel_integration.patch
+patch -p1 --fuzz=0 < /tmp/rosemary-nomount/integration-s-vendor.patch
+python3 .github/scripts/patch-nomount-maps.py
 grep -q 'config NOMOUNT' fs/Kconfig
 grep -q 'CONFIG_NOMOUNT' fs/Makefile
 grep -q 'vfs_map_meta_override' fs/proc/task_mmu.c
