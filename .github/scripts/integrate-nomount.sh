@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROTO="${NOMOUNT_NETLINK_PROTO:-29}"
-case "${PROTO}" in 28|29) ;; *) echo "::error::Invalid NoMount Netlink protocol"; exit 1;; esac
+PROTO="${NOMOUNT_NETLINK_PROTO:-28}"
+case "${PROTO}" in
+  28) ;;
+  29)
+    echo "::error::Netlink 29 collides with Goodix fingerprint driver GF_NETLINK_ROUTE in this S-vendor kernel."
+    exit 1 ;;
+  *) echo "::error::Unsupported NoMount Netlink protocol: ${PROTO}"; exit 1 ;;
+esac
+grep -q '^#define GF_NETLINK_ROUTE 29' drivers/input/fingerprint/goodix/gf_spi_tee.c
+grep -q '^#define GF_NETLINK_ROUTE 29' drivers/input/fingerprint_C3J/goodix/gf_spi_tee.c
+# The fingerprint driver owns protocol 29. Keep it unchanged; move NoMount and nm to 28.
 
 git clone --depth=1 https://github.com/Bouteillepleine/NoMount-Suite.git /tmp/rosemary-nomount
 git -C /tmp/rosemary-nomount checkout --detach f75cd19096b859f7c20181402231dad914bb02f7
